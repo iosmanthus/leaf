@@ -10,6 +10,7 @@ use futures::stream::Stream;
 use futures::TryFutureExt;
 use log::*;
 use socket2::SockRef;
+use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
@@ -34,7 +35,6 @@ use crate::{
 pub mod datagram;
 pub mod inbound;
 pub mod outbound;
-pub mod stream;
 
 pub mod null;
 
@@ -52,20 +52,16 @@ pub mod failover;
 pub mod http;
 #[cfg(any(feature = "inbound-quic", feature = "outbound-quic"))]
 pub mod quic;
-#[cfg(feature = "outbound-random")]
-pub mod random;
 #[cfg(feature = "outbound-redirect")]
 pub mod redirect;
-#[cfg(feature = "outbound-retry")]
-pub mod retry;
-#[cfg(feature = "outbound-rr")]
-pub mod rr;
 #[cfg(feature = "outbound-select")]
 pub mod select;
 #[cfg(any(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 pub mod shadowsocks;
 #[cfg(any(feature = "inbound-socks", feature = "outbound-socks"))]
 pub mod socks;
+#[cfg(feature = "outbound-static")]
+pub mod r#static;
 #[cfg(feature = "outbound-tls")]
 pub mod tls;
 #[cfg(any(feature = "inbound-trojan", feature = "outbound-trojan"))]
@@ -89,7 +85,16 @@ pub use datagram::{
     SimpleInboundDatagram, SimpleInboundDatagramRecvHalf, SimpleInboundDatagramSendHalf,
     SimpleOutboundDatagram, SimpleOutboundDatagramRecvHalf, SimpleOutboundDatagramSendHalf,
 };
-pub use stream::BufHeadProxyStream;
+
+#[derive(Error, Debug)]
+pub enum ProxyError {
+    #[error(transparent)]
+    DatagramWarn(anyhow::Error),
+    #[error(transparent)]
+    DatagramFatal(anyhow::Error),
+}
+
+pub type ProxyResult<T> = std::result::Result<T, ProxyError>;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DatagramTransportType {
@@ -682,7 +687,7 @@ pub trait InboundDatagramRecvHalf: Sync + Send + Unpin {
     async fn recv_from(
         &mut self,
         buf: &mut [u8],
-    ) -> io::Result<(usize, DatagramSource, Option<SocksAddr>)>;
+    ) -> ProxyResult<(usize, DatagramSource, SocksAddr)>;
 }
 
 /// The send half.
@@ -698,7 +703,7 @@ pub trait InboundDatagramSendHalf: Sync + Send + Unpin {
     async fn send_to(
         &mut self,
         buf: &[u8],
-        src_addr: Option<&SocksAddr>,
+        src_addr: &SocksAddr,
         dst_addr: &SocketAddr,
     ) -> io::Result<usize>;
 }

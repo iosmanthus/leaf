@@ -68,6 +68,8 @@ impl Stream for Incoming {
         if !new_conns.is_empty() {
             self.new_conns.append(&mut new_conns);
         }
+
+        #[allow(unused_must_use)]
         for idx in completed.iter().rev() {
             self.connectings.swap_remove(*idx);
         }
@@ -187,7 +189,7 @@ impl UdpInboundHandler for Handler {
             }
         };
 
-        let mut server_crypto = rustls::ServerConfig::builder()
+        let server_crypto = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert, key)
