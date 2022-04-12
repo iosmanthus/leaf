@@ -963,6 +963,7 @@ dependencies = [
  "md-5",
  "memchr",
  "memmap2",
+ "netstack-lwip",
  "notify",
  "openssl",
  "openssl-probe",
@@ -998,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "leaf-bin"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "argh",
  "leaf",
@@ -1155,6 +1156,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "netstack-lwip"
+version = "0.2.0"
+source = "git+https://github.com/eycorsican/netstack-lwip.git?tag=v0.2.0#620a8ba6d7d668aa67c285bbe62951c3be245770"
+dependencies = [
+ "anyhow",
+ "bindgen 0.59.2",
+ "bytes",
+ "cc",
+ "futures",
+ "log",
+ "tokio",
 ]
 
 [[package]]
