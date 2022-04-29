@@ -231,6 +231,15 @@ where
 }
 
 pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
+    let env_lines = get_lines_by_section("Env", lines.iter());
+    for line in env_lines {
+        let parts: Vec<&str> = line.split('=').map(str::trim).collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        std::env::set_var(parts[0], parts[1]);
+    }
+
     let mut general = General::default();
     let general_lines = get_lines_by_section("General", lines.iter());
     for line in general_lines {
@@ -1201,26 +1210,12 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
         dns.hosts = hosts;
     }
 
-    let api = if let Some(ext_general) = &conf.general {
-        if ext_general.api_interface.is_some() && ext_general.api_port.is_some() {
-            let mut api_inner = internal::Api::new();
-            api_inner.address = ext_general.api_interface.as_ref().unwrap().to_string();
-            api_inner.port = ext_general.api_port.unwrap() as u32;
-            protobuf::SingularPtrField::some(api_inner)
-        } else {
-            protobuf::SingularPtrField::none()
-        }
-    } else {
-        protobuf::SingularPtrField::none()
-    };
-
     let mut config = internal::Config::new();
     config.log = protobuf::SingularPtrField::some(log);
     config.inbounds = inbounds;
     config.outbounds = outbounds;
     config.router = router;
     config.dns = protobuf::SingularPtrField::some(dns);
-    config.api = api;
 
     Ok(config)
 }

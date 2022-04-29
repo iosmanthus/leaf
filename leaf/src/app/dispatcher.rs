@@ -15,6 +15,9 @@ use crate::{
     session::{Network, Session, SocksAddr},
 };
 
+#[cfg(feature = "stat")]
+use crate::app::SyncStatManager;
+
 use super::outbound::manager::OutboundManager;
 use super::router::Router;
 
@@ -52,6 +55,8 @@ pub struct Dispatcher {
     outbound_manager: Arc<RwLock<OutboundManager>>,
     router: Arc<RwLock<Router>>,
     dns_client: SyncDnsClient,
+    #[cfg(feature = "stat")]
+    stat_manager: SyncStatManager,
 }
 
 impl Dispatcher {
@@ -59,15 +64,18 @@ impl Dispatcher {
         outbound_manager: Arc<RwLock<OutboundManager>>,
         router: Arc<RwLock<Router>>,
         dns_client: SyncDnsClient,
+        #[cfg(feature = "stat")] stat_manager: SyncStatManager,
     ) -> Self {
         Dispatcher {
             outbound_manager,
             router,
             dns_client,
+            #[cfg(feature = "stat")]
+            stat_manager,
         }
     }
 
-    pub async fn dispatch_tcp<T>(&self, sess: &mut Session, lhs: T)
+    pub async fn dispatch_tcp<T>(&self, mut sess: Session, lhs: T)
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
@@ -109,7 +117,7 @@ impl Dispatcher {
 
         let outbound = {
             let router = self.router.read().await;
-            match router.pick_route(sess).await {
+            match router.pick_route(&sess).await {
                 Ok(tag) => {
                     debug!(
                         "picked route [{}] for {} -> {}",
@@ -139,6 +147,8 @@ impl Dispatcher {
             }
         };
 
+        sess.outbound_tag = outbound.clone();
+
         let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
             h
         } else {
@@ -155,7 +165,7 @@ impl Dispatcher {
 
         let handshake_start = tokio::time::Instant::now();
         let stream =
-            match crate::proxy::connect_tcp_outbound(sess, self.dns_client.clone(), &h).await {
+            match crate::proxy::connect_tcp_outbound(&sess, self.dns_client.clone(), &h).await {
                 Ok(s) => s,
                 Err(e) => {
                     debug!(
@@ -165,15 +175,24 @@ impl Dispatcher {
                         &h.tag(),
                         e
                     );
-                    log_request(sess, h.tag(), h.color(), None);
+                    log_request(&sess, h.tag(), h.color(), None);
                     return;
                 }
             };
-        match TcpOutboundHandler::handle(h.as_ref(), sess, stream).await {
+        match TcpOutboundHandler::handle(h.as_ref(), &sess, stream).await {
             Ok(mut rhs) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
-                log_request(sess, h.tag(), h.color(), Some(elapsed.as_millis()));
+                log_request(&sess, h.tag(), h.color(), Some(elapsed.as_millis()));
+
+                #[cfg(feature = "stat")]
+                if *crate::option::ENABLE_STATS {
+                    rhs = self
+                        .stat_manager
+                        .write()
+                        .await
+                        .stat_stream(rhs, sess.clone());
+                }
 
                 match common::io::copy_buf_bidirectional_with_timeout(
                     &mut lhs,
@@ -214,7 +233,7 @@ impl Dispatcher {
                     e
                 );
 
-                log_request(sess, h.tag(), h.color(), None);
+                log_request(&sess, h.tag(), h.color(), None);
 
                 if let Err(e) = lhs.shutdown().await {
                     debug!(
@@ -229,10 +248,10 @@ impl Dispatcher {
         }
     }
 
-    pub async fn dispatch_udp(&self, sess: &Session) -> io::Result<Box<dyn OutboundDatagram>> {
+    pub async fn dispatch_udp(&self, mut sess: Session) -> io::Result<Box<dyn OutboundDatagram>> {
         let outbound = {
             let router = self.router.read().await;
-            match router.pick_route(sess).await {
+            match router.pick_route(&sess).await {
                 Ok(tag) => {
                     debug!(
                         "picked route [{}] for {} -> {}",
@@ -256,6 +275,8 @@ impl Dispatcher {
             }
         };
 
+        sess.outbound_tag = outbound.clone();
+
         let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
             h
         } else {
@@ -265,14 +286,24 @@ impl Dispatcher {
 
         let handshake_start = tokio::time::Instant::now();
         let transport =
-            crate::proxy::connect_udp_outbound(sess, self.dns_client.clone(), &h).await?;
-        match UdpOutboundHandler::handle(h.as_ref(), sess, transport).await {
-            Ok(c) => {
+            crate::proxy::connect_udp_outbound(&sess, self.dns_client.clone(), &h).await?;
+        match UdpOutboundHandler::handle(h.as_ref(), &sess, transport).await {
+            #[allow(unused_mut)]
+            Ok(mut d) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
-                log_request(sess, h.tag(), h.color(), Some(elapsed.as_millis()));
+                log_request(&sess, h.tag(), h.color(), Some(elapsed.as_millis()));
 
-                Ok(c)
+                #[cfg(feature = "stat")]
+                if *crate::option::ENABLE_STATS {
+                    d = self
+                        .stat_manager
+                        .write()
+                        .await
+                        .stat_outbound_datagram(d, sess.clone());
+                }
+
+                Ok(d)
             }
             Err(e) => {
                 debug!(
@@ -282,7 +313,7 @@ impl Dispatcher {
                     &h.tag(),
                     e
                 );
-                log_request(sess, h.tag(), h.color(), None);
+                log_request(&sess, h.tag(), h.color(), None);
                 Err(e)
             }
         }
