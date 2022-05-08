@@ -9,7 +9,9 @@ const COMMIT_DATE: Option<&'static str> = option_env!("CFG_COMMIT_DATE");
 fn get_version_string() -> String {
     match (VERSION, COMMIT_HASH, COMMIT_DATE) {
         (Some(ver), None, None) => ver.to_string(),
-        (Some(ver), Some(hash), Some(date)) => format!("{} ({} - {})", ver, hash, date),
+        (Some(ver), Some(hash), Some(date)) => {
+            format!("{} ({} - {})", ver, hash, date)
+        }
         _ => "unknown".to_string(),
     }
 }
@@ -91,8 +93,23 @@ fn main() {
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(leaf::util::test_outbound(&tag, &config));
-        exit(0);
+        match rt.block_on(leaf::util::test_outbound(&tag, &config, None)) {
+            Err(e) => {
+                println!("test outbound failed: {}", e);
+                exit(1);
+            }
+            Ok((tcp_res, udp_res)) => {
+                match tcp_res {
+                    Ok(duration) => println!("TCP ok in {}ms", duration.as_millis()),
+                    Err(e) => println!("TCP failed: {}", e),
+                }
+                match udp_res {
+                    Ok(duration) => println!("UDP ok in {}ms", duration.as_millis()),
+                    Err(e) => println!("UDP failed: {}", e),
+                }
+                exit(0);
+            }
+        }
     }
 
     if let Err(e) = leaf::util::run_with_options(
