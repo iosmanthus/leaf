@@ -3,10 +3,7 @@ use std::{convert::TryFrom, io, sync::Arc};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 
-use crate::{
-    proxy::*,
-    session::{Session, SocksAddr, SocksAddrWireType},
-};
+use crate::{proxy::*, session::*};
 
 use super::shadow::{self, ShadowedDatagram};
 
@@ -19,28 +16,27 @@ pub struct Handler {
 
 #[async_trait]
 impl UdpOutboundHandler for Handler {
-    type UStream = AnyStream;
-    type Datagram = AnyOutboundDatagram;
-
-    fn connect_addr(&self) -> Option<OutboundConnect> {
-        Some(OutboundConnect::Proxy(self.address.clone(), self.port))
+    fn connect_addr(&self) -> OutboundConnect {
+        OutboundConnect::Proxy(Network::Udp, self.address.clone(), self.port)
     }
 
     fn transport_type(&self) -> DatagramTransportType {
-        DatagramTransportType::Datagram
+        DatagramTransportType::Unreliable
     }
 
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
-        transport: Option<OutboundTransport<Self::UStream, Self::Datagram>>,
-    ) -> io::Result<Self::Datagram> {
+        transport: Option<AnyOutboundTransport>,
+    ) -> io::Result<AnyOutboundDatagram> {
         let server_addr = SocksAddr::try_from((&self.address, self.port))?;
 
         let socket = if let Some(OutboundTransport::Datagram(socket)) = transport {
             socket
         } else {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid input"));
+            // Don't accept stream transport because we can't determine datagram
+            // boundary.
+            return Err(io::Error::new(io::ErrorKind::Other, "invalid ss input"));
         };
 
         let dgram = ShadowedDatagram::new(&self.cipher, &self.password)?;
@@ -134,5 +130,9 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .send_to(&ciphertext, &self.server_addr)
             .map_ok(|_| buf.len())
             .await
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.send_half.close().await
     }
 }

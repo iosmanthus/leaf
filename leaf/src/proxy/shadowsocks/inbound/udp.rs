@@ -21,13 +21,7 @@ pub struct Handler {
 
 #[async_trait]
 impl UdpInboundHandler for Handler {
-    type UStream = AnyStream;
-    type UDatagram = AnyInboundDatagram;
-
-    async fn handle<'a>(
-        &'a self,
-        socket: Self::UDatagram,
-    ) -> io::Result<InboundTransport<Self::UStream, Self::UDatagram>> {
+    async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         let dgram = ShadowedDatagram::new(&self.cipher, &self.password)?;
         Ok(InboundTransport::Datagram(
             Box::new(Datagram { dgram, socket }),
@@ -38,7 +32,7 @@ impl UdpInboundHandler for Handler {
 
 pub struct Datagram {
     dgram: ShadowedDatagram,
-    socket: Box<dyn InboundDatagram>,
+    socket: AnyInboundDatagram,
 }
 
 impl InboundDatagram for Datagram {
@@ -103,5 +97,9 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
         send_buf.put_slice(buf);
         let ciphertext = self.0.encrypt(send_buf).map_err(|_| shadow::crypto_err())?;
         self.1.send_to(&ciphertext[..], src_addr, dst_addr).await
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.1.close().await
     }
 }

@@ -15,13 +15,7 @@ pub struct Handler;
 
 #[async_trait]
 impl UdpInboundHandler for Handler {
-    type UStream = AnyStream;
-    type UDatagram = AnyInboundDatagram;
-
-    async fn handle<'a>(
-        &'a self,
-        socket: Self::UDatagram,
-    ) -> io::Result<InboundTransport<Self::UStream, Self::UDatagram>> {
+    async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         Ok(InboundTransport::Datagram(
             Box::new(Datagram { socket }),
             None,
@@ -92,5 +86,9 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
         src_addr.write_buf(&mut send_buf, SocksAddrWireType::PortLast);
         send_buf.put_slice(buf);
         self.0.send_to(&send_buf[..], src_addr, dst_addr).await
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.0.close().await
     }
 }

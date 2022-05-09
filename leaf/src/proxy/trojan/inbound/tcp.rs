@@ -109,6 +109,10 @@ where
         data.put_slice(buf);
         self.0.write_all(&data).map_ok(|_| buf.len()).await
     }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.0.shutdown().await
+    }
 }
 
 pub struct Handler {
@@ -129,14 +133,11 @@ impl Handler {
 
 #[async_trait]
 impl TcpInboundHandler for Handler {
-    type TStream = AnyStream;
-    type TDatagram = AnyInboundDatagram;
-
     async fn handle<'a>(
         &'a self,
         mut sess: Session,
-        mut stream: Self::TStream,
-    ) -> std::io::Result<InboundTransport<Self::TStream, Self::TDatagram>> {
+        mut stream: AnyStream,
+    ) -> std::io::Result<AnyInboundTransport> {
         let mut buf = BytesMut::new();
         // read key
         buf.resize(56, 0);

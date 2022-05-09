@@ -11,8 +11,8 @@ use tokio::time::timeout;
 use crate::{
     app::{dns_client::DnsClient, outbound::manager::OutboundManager, SyncDnsClient},
     config::Config,
-    proxy::{AnyOutboundHandler, TcpOutboundHandler, UdpOutboundHandler},
-    session::{Session, SocksAddr},
+    proxy::*,
+    session::*,
 };
 
 fn get_start_options(
@@ -74,11 +74,12 @@ async fn test_tcp_outbound(
 ) -> Result<Duration> {
     let sess = Session {
         destination: SocksAddr::Domain("www.google.com".to_string(), 80),
+        new_conn_once: true,
         ..Default::default()
     };
     let start = tokio::time::Instant::now();
     let stream = crate::proxy::connect_tcp_outbound(&sess, dns_client, &handler).await?;
-    let mut stream = TcpOutboundHandler::handle(handler.as_ref(), &sess, stream).await?;
+    let mut stream = handler.tcp()?.handle(&sess, stream).await?;
     stream.write_all(b"HEAD / HTTP/1.1\r\n\r\n").await?;
     let mut buf = Vec::new();
     let n = stream.read_buf(&mut buf).await?;
@@ -101,11 +102,12 @@ async fn test_udp_outbound(
     let addr = SocksAddr::Ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53));
     let sess = Session {
         destination: addr.clone(),
+        new_conn_once: true,
         ..Default::default()
     };
     let start = tokio::time::Instant::now();
     let dgram = crate::proxy::connect_udp_outbound(&sess, dns_client, &handler).await?;
-    let dgram = UdpOutboundHandler::handle(handler.as_ref(), &sess, dgram).await?;
+    let dgram = handler.udp()?.handle(&sess, dgram).await?;
     let mut msg = Message::new();
     let name = Name::from_str("www.google.com.")?;
     let query = Query::query(name, RecordType::A);
