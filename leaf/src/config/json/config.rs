@@ -218,6 +218,7 @@ pub struct Rule {
     pub port_range: Option<Vec<String>>,
     #[serde(rename = "inboundTag")]
     pub inbound_tag: Option<Vec<String>>,
+    pub networks: Option<Vec<String>>,
     pub target: String,
 }
 
@@ -918,6 +919,11 @@ pub fn to_internal(json: &mut Config) -> Result<internal::Config> {
                 if let Some(ext_its) = ext_rule.inbound_tag.as_mut() {
                     for it in ext_its.drain(0..) {
                         rule.inbound_tags.push(it);
+                    }
+                }
+                if let Some(networks) = ext_rule.networks.as_mut() {
+                    for network in networks.drain(0..) {
+                        rule.networks.push(network);
                     }
                 }
                 rules.push(rule);
