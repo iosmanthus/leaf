@@ -18,6 +18,19 @@ where
     default
 }
 
+fn get_env_var_or_else<T, F>(key: &str, f: F) -> T
+where
+    T: FromStr,
+    F: FnOnce() -> T,
+{
+    if let Ok(v) = env::var(key) {
+        if let Ok(v) = v.parse::<T>() {
+            return v;
+        }
+    }
+    f()
+}
+
 #[cfg(target_os = "ios")]
 lazy_static! {
     /// Maximum number of proxy outbound TCP connections allowed at the same time.
@@ -61,9 +74,9 @@ lazy_static! {
 
 lazy_static! {
     pub static ref HTTP_USER_AGENT: String = {
-        get_env_var_or(
+        get_env_var_or_else(
             "HTTP_USER_AGENT",
-            get_env_var_or("USER_AGENT", "".to_string()), // legacy support
+            || get_env_var_or("USER_AGENT", "".to_string()), // legacy support
         )
     };
 
@@ -84,6 +97,10 @@ lazy_static! {
         get_env_var_or("LOG_NO_COLOR", false)
     };
 
+    pub static ref DOMAIN_SNIFFING: bool = {
+        get_env_var_or("DOMAIN_SNIFFING", false)
+    };
+
     /// Uplink timeout after downlink EOF.
     pub static ref TCP_UPLINK_TIMEOUT: u64 = {
         get_env_var_or("TCP_UPLINK_TIMEOUT", 10)
@@ -99,9 +116,31 @@ lazy_static! {
         get_env_var_or("LINK_BUFFER_SIZE", 2)
     };
 
+    pub static ref NETSTACK_OUTPUT_CHANNEL_SIZE: usize = {
+        get_env_var_or("NETSTACK_OUTPUT_CHANNEL_SIZE", 512)
+    };
+
+    pub static ref NETSTACK_UDP_UPLINK_CHANNEL_SIZE: usize = {
+        get_env_var_or("NETSTACK_UDP_UPLINK_CHANNEL_SIZE", 256)
+    };
+
+    pub static ref UDP_UPLINK_CHANNEL_SIZE: usize = {
+        get_env_var_or("UDP_UPLINK_CHANNEL_SIZE", 256)
+    };
+
+    pub static ref UDP_DOWNLINK_CHANNEL_SIZE: usize = {
+        get_env_var_or("UDP_DOWNLINK_CHANNEL_SIZE", 256)
+    };
+
     /// Buffer size for UDP datagrams receiving/sending, in KB.
     pub static ref DATAGRAM_BUFFER_SIZE: usize = {
         get_env_var_or("DATAGRAM_BUFFER_SIZE", 2)
+    };
+
+    /// The timeout for an accepted inbound TCP connection to finish the proxy
+    /// protocol handshake.
+    pub static ref INBOUND_ACCEPT_TIMEOUT: u64 = {
+        get_env_var_or("INBOUND_ACCEPT_TIMEOUT", 60)
     };
 
     pub static ref OUTBOUND_DIAL_TIMEOUT: u64 = {
@@ -122,9 +161,11 @@ lazy_static! {
     };
 
     pub static ref ASSET_LOCATION: String = {
-        let mut file = std::env::current_exe().unwrap();
-        file.pop();
-        get_env_var_or("ASSET_LOCATION", file.to_str().unwrap().to_string())
+        get_env_var_or_else("ASSET_LOCATION", || {
+            let mut file = std::env::current_exe().unwrap();
+            file.pop();
+            file.to_str().unwrap().to_string()
+        })
     };
 
     pub static ref CACHE_LOCATION: String = {
@@ -144,12 +185,13 @@ lazy_static! {
     };
 
     pub static ref UNSPECIFIED_BIND_ADDR: SocketAddr = {
-        let default =  if *ENABLE_IPV6 {
-            "[::]:0".to_string().parse().unwrap()
-        } else {
-            "0.0.0.0:0".to_string().parse().unwrap()
-        };
-        get_env_var_or("UNSPECIFIED_BIND_ADDR", default)
+        get_env_var_or_else("UNSPECIFIED_BIND_ADDR", || {
+            if *ENABLE_IPV6 {
+                "[::]:0".to_string().parse().unwrap()
+            } else {
+                "0.0.0.0:0".to_string().parse().unwrap()
+            }
+        })
     };
 
     pub static ref OUTBOUND_BINDS: Vec<crate::proxy::OutboundBind> = {

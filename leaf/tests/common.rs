@@ -78,6 +78,8 @@ fn new_socks_outbound(socks_addr: &str, socks_port: u16) -> AnyOutboundHandler {
     let settings = leaf::config::json::SocksOutboundSettings {
         address: Some(socks_addr.to_string()),
         port: Some(socks_port),
+        username: None,
+        password: None,
     };
     let settings_str = serde_json::to_string(&settings).unwrap();
     let raw_settings = serde_json::value::RawValue::from_string(settings_str).unwrap();
@@ -110,7 +112,7 @@ pub async fn new_socks_stream(socks_addr: &str, socks_port: u16, sess: &Session)
         .unwrap();
     timeout(
         Duration::from_secs(2),
-        handler.tcp().unwrap().handle(sess, Some(Box::new(stream))),
+        handler.stream().unwrap().handle(sess, Some(Box::new(stream))),
     )
     .await
     .unwrap()
@@ -125,7 +127,7 @@ pub async fn new_socks_datagram(
     let handler = new_socks_outbound(socks_addr, socks_port);
     timeout(
         Duration::from_secs(2),
-        handler.udp().unwrap().handle(sess, None),
+        handler.datagram().unwrap().handle(sess, None),
     )
     .await
     .unwrap()

@@ -115,6 +115,7 @@ pub struct ProxyGroup {
     pub last_resort: Option<String>,
     pub health_check_timeout: Option<i32>,
     pub health_check_delay: Option<i32>,
+    pub health_check_active: Option<i32>,
 
     // tryall
     pub delay_base: Option<i32>,
@@ -129,18 +130,19 @@ impl Default for ProxyGroup {
             tag: "".to_string(),
             protocol: "".to_string(),
             actors: None,
-            health_check: Some(true),
-            check_interval: Some(300),
-            fail_timeout: Some(4),
-            failover: Some(true),
-            fallback_cache: Some(false),
-            cache_size: Some(256),
-            cache_timeout: Some(60),
+            health_check: None,
+            check_interval: None,
+            fail_timeout: None,
+            failover: None,
+            fallback_cache: None,
+            cache_size: None,
+            cache_timeout: None,
             last_resort: None,
-            health_check_timeout: Some(5),
-            health_check_delay: Some(5),
-            delay_base: Some(0),
-            method: Some("random".to_string()),
+            health_check_timeout: None,
+            health_check_delay: None,
+            health_check_active: None,
+            delay_base: None,
+            method: None,
         }
     }
 }
@@ -570,6 +572,14 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                         };
                         group.health_check_delay = i;
                     }
+                    "health-check-active" => {
+                        let i = if let Ok(i) = v.parse::<i32>() {
+                            Some(i)
+                        } else {
+                            None
+                        };
+                        group.health_check_active = i;
+                    }
                     "delay-base" => {
                         let i = if let Ok(i) = v.parse::<i32>() {
                             Some(i)
@@ -679,26 +689,28 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
     if let Some(ext_general) = &conf.general {
         if let Some(ext_loglevel) = &ext_general.loglevel {
             match ext_loglevel.as_str() {
-                "trace" => log.level = internal::Log_Level::TRACE,
-                "debug" => log.level = internal::Log_Level::DEBUG,
-                "info" => log.level = internal::Log_Level::INFO,
-                "warn" => log.level = internal::Log_Level::WARN,
-                "error" => log.level = internal::Log_Level::ERROR,
-                _ => log.level = internal::Log_Level::WARN,
+                "trace" => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::TRACE),
+                "debug" => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::DEBUG),
+                "info" => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::INFO),
+                "warn" => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::WARN),
+                "error" => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::ERROR),
+                _ => log.level = protobuf::EnumOrUnknown::new(internal::log::Level::WARN),
             }
         }
         if let Some(ext_logoutput) = &ext_general.logoutput {
             match ext_logoutput.as_str() {
-                "console" => log.output = internal::Log_Output::CONSOLE,
+                "console" => {
+                    log.output = protobuf::EnumOrUnknown::new(internal::log::Output::CONSOLE)
+                }
                 _ => {
-                    log.output = internal::Log_Output::FILE;
+                    log.output = protobuf::EnumOrUnknown::new(internal::log::Output::FILE);
                     log.output_file = ext_logoutput.clone();
                 }
             }
         }
     }
 
-    let mut inbounds = protobuf::RepeatedField::new();
+    let mut inbounds = Vec::new();
     if let Some(ext_general) = &conf.general {
         if ext_general.http_interface.is_some() && ext_general.http_port.is_some() {
             let mut inbound = internal::Inbound::new();
@@ -726,7 +738,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
             inbound.tag = "tun".to_string();
             let mut settings = internal::TunInboundSettings::new();
 
-            let mut fake_dns_exclude = protobuf::RepeatedField::new();
+            let mut fake_dns_exclude = Vec::new();
             if let Some(ext_always_real_ip) = &ext_general.always_real_ip {
                 for item in ext_always_real_ip {
                     fake_dns_exclude.push(item.clone())
@@ -736,7 +748,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                 }
             }
 
-            let mut fake_dns_include = protobuf::RepeatedField::new();
+            let mut fake_dns_include = Vec::new();
             if let Some(ext_always_fake_ip) = &ext_general.always_fake_ip {
                 for item in ext_always_fake_ip {
                     fake_dns_include.push(item.clone())
@@ -781,7 +793,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
         }
     }
 
-    let mut outbounds = protobuf::RepeatedField::new();
+    let mut outbounds = Vec::new();
     if let Some(ext_proxies) = &conf.proxy {
         for ext_proxy in ext_proxies {
             let mut outbound = internal::Outbound::new();
@@ -814,6 +826,12 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                     }
                     if let Some(ext_port) = &ext_proxy.port {
                         settings.port = *ext_port as u32;
+                    }
+                    if let Some(ext_username) = &ext_proxy.username {
+                        settings.username = ext_username.clone();
+                    }
+                    if let Some(ext_password) = &ext_proxy.password {
+                        settings.password = ext_password.clone();
                     }
                     let settings = settings.write_to_bytes().unwrap();
                     outbound.settings = settings;
@@ -1216,7 +1234,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                     if let Some(ext_check_interval) = ext_proxy_group.check_interval {
                         settings.check_interval = ext_check_interval as u32;
                     } else {
-                        settings.check_interval = 300;
+                        settings.check_interval = 5 * 60; // 5mins
                     }
                     if let Some(ext_failover) = ext_proxy_group.failover {
                         settings.failover = ext_failover;
@@ -1236,7 +1254,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                     if let Some(ext_cache_timeout) = ext_proxy_group.cache_timeout {
                         settings.cache_timeout = ext_cache_timeout as u32;
                     } else {
-                        settings.cache_timeout = 60; // in minutes
+                        settings.cache_timeout = 60; // 60mins
                     }
                     if let Some(ext_last_resort) = &ext_proxy_group.last_resort {
                         settings.last_resort = ext_last_resort.clone();
@@ -1246,12 +1264,17 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                     if let Some(ext_health_check_timeout) = ext_proxy_group.health_check_timeout {
                         settings.health_check_timeout = ext_health_check_timeout as u32;
                     } else {
-                        settings.health_check_timeout = 4;
+                        settings.health_check_timeout = 4; // 4s
                     }
                     if let Some(ext_health_check_delay) = ext_proxy_group.health_check_delay {
                         settings.health_check_delay = ext_health_check_delay as u32;
                     } else {
-                        settings.health_check_delay = 200;
+                        settings.health_check_delay = 200; // 200ms
+                    }
+                    if let Some(ext_health_check_active) = ext_proxy_group.health_check_active {
+                        settings.health_check_active = ext_health_check_active as u32;
+                    } else {
+                        settings.health_check_active = 15 * 60; // 15mins
                     }
                     let settings = settings.write_to_bytes().unwrap();
                     outbound.settings = settings;
@@ -1274,10 +1297,10 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
     }
 
     let mut int_router = internal::Router::new();
-    let mut rules = protobuf::RepeatedField::new();
+    let mut rules = Vec::new();
     if let Some(ext_rules) = conf.rule.as_mut() {
         for ext_rule in ext_rules.iter_mut() {
-            let mut rule = internal::Router_Rule::new();
+            let mut rule = internal::router::Rule::new();
 
             let target_tag = std::mem::take(&mut ext_rule.target);
             rule.target_tag = target_tag;
@@ -1309,25 +1332,28 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
                     rule.ip_cidrs.push(ext_filter);
                 }
                 "DOMAIN" => {
-                    let mut domain = internal::Router_Rule_Domain::new();
-                    domain.field_type = internal::Router_Rule_Domain_Type::FULL;
+                    let mut domain = internal::router::rule::Domain::new();
+                    domain.type_ =
+                        protobuf::EnumOrUnknown::new(internal::router::rule::domain::Type::FULL);
                     domain.value = ext_filter;
                     rule.domains.push(domain);
                 }
                 "DOMAIN-KEYWORD" => {
-                    let mut domain = internal::Router_Rule_Domain::new();
-                    domain.field_type = internal::Router_Rule_Domain_Type::PLAIN;
+                    let mut domain = internal::router::rule::Domain::new();
+                    domain.type_ =
+                        protobuf::EnumOrUnknown::new(internal::router::rule::domain::Type::PLAIN);
                     domain.value = ext_filter;
                     rule.domains.push(domain);
                 }
                 "DOMAIN-SUFFIX" => {
-                    let mut domain = internal::Router_Rule_Domain::new();
-                    domain.field_type = internal::Router_Rule_Domain_Type::DOMAIN;
+                    let mut domain = internal::router::rule::Domain::new();
+                    domain.type_ =
+                        protobuf::EnumOrUnknown::new(internal::router::rule::domain::Type::DOMAIN);
                     domain.value = ext_filter;
                     rule.domains.push(domain);
                 }
                 "GEOIP" => {
-                    let mut mmdb = internal::Router_Rule_Mmdb::new();
+                    let mut mmdb = internal::router::rule::Mmdb::new();
 
                     let asset_loc = Path::new(&*crate::option::ASSET_LOCATION);
                     mmdb.file = asset_loc.join("geo.mmdb").to_string_lossy().to_string();
@@ -1360,10 +1386,10 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
             int_router.domain_resolve = ext_domain_resolve;
         }
     }
-    let router = protobuf::SingularPtrField::some(int_router);
+    let router = protobuf::MessageField::some(int_router);
 
     let mut dns = internal::Dns::new();
-    let mut servers = protobuf::RepeatedField::new();
+    let mut servers = Vec::new();
     let mut hosts = HashMap::new();
     if let Some(ext_general) = &conf.general {
         if let Some(ext_dns_servers) = &ext_general.dns_server {
@@ -1380,8 +1406,8 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
     }
     if let Some(ext_hosts) = &conf.host {
         for (name, static_ips) in ext_hosts.iter() {
-            let mut ips = internal::Dns_Ips::new();
-            let mut ip_vals = protobuf::RepeatedField::new();
+            let mut ips = internal::dns::Ips::new();
+            let mut ip_vals = Vec::new();
             for ip in static_ips {
                 ip_vals.push(ip.to_owned());
             }
@@ -1394,11 +1420,11 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
     }
 
     let mut config = internal::Config::new();
-    config.log = protobuf::SingularPtrField::some(log);
+    config.log = protobuf::MessageField::some(log);
     config.inbounds = inbounds;
     config.outbounds = outbounds;
     config.router = router;
-    config.dns = protobuf::SingularPtrField::some(dns);
+    config.dns = protobuf::MessageField::some(dns);
 
     Ok(config)
 }

@@ -42,6 +42,12 @@ message TunInboundSettings {
 	repeated string fake_dns_include = 8;
 }
 
+message CatInboundSettings {
+	string network = 1;
+	string address = 2;
+	uint32 port = 3;
+}
+
 message ShadowsocksInboundSettings {
 	string method = 1;
 	string password = 2;
@@ -62,6 +68,7 @@ message AMuxInboundSettings {
 message QuicInboundSettings {
 	string certificate = 1;
 	string certificate_key = 2;
+	repeated string alpn = 3;
 }
 
 message TlsInboundSettings {
@@ -89,6 +96,8 @@ message RedirectOutboundSettings {
 message SocksOutboundSettings {
 	string address = 1;
 	uint32 port = 2;
+	string username = 3;
+	string password = 4;
 }
 
 message ShadowsocksOutboundSettings {
@@ -138,6 +147,7 @@ message QuicOutboundSettings {
 	uint32 port = 2;
 	string server_name = 3;
 	string certificate = 4;
+	repeated string alpn = 5;
 }
 
 message VMessOutboundSettings {
@@ -154,8 +164,6 @@ message ChainOutboundSettings {
 message FailOverOutboundSettings {
 	repeated string actors = 1;
 	uint32 fail_timeout = 2;
-	// if health check is disabled, it will always perform failover
-	// to other actors dispite whatever failover option is set.
 	bool health_check = 3;
 	uint32 check_interval = 4;
 	bool failover = 5;
@@ -165,6 +173,7 @@ message FailOverOutboundSettings {
 	string last_resort = 9;
 	uint32 health_check_timeout = 10;
 	uint32 health_check_delay = 11;
+	uint32 health_check_active = 12;
 }
 
 message SelectOutboundSettings {
